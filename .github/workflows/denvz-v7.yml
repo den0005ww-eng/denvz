@@ -1,0 +1,2789 @@
+name: Build DENVZ v7
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Accept Android licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - name: Create project files
+        run: |
+          set -e
+          mkdir -p app app/src/main app/src/main/java/com/denvz/app app/src/main/res/drawable-nodpi app/src/main/res/mipmap-anydpi-v26 app/src/main/res/values
+          cat > settings.gradle.kts <<'DENVZ_EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "DENVZ"
+          include(":app")
+          DENVZ_EOF
+          cat > build.gradle.kts <<'DENVZ_EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          DENVZ_EOF
+          cat > gradle.properties <<'DENVZ_EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          android.useAndroidX=true
+          DENVZ_EOF
+          cat > app/build.gradle.kts <<'DENVZ_EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.denvz.app"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.denvz.app"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "0.1"
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("dev.rikka.shizuku:api:13.1.5")
+              implementation("dev.rikka.shizuku:provider:13.1.5")
+          }
+          DENVZ_EOF
+          cat > app/src/main/AndroidManifest.xml <<'DENVZ_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.INTERNET" />
+
+              <!-- Нужно, чтобы Android 11+ разрешил найти и запустить Standoff 2 -->
+              <queries>
+                  <package android:name="com.axlebolt.standoff2" />
+                  <package android:name="moe.shizuku.privileged.api" />
+              </queries>
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher"
+                  android:label="DENVZ"
+                  android:theme="@android:style/Theme.Material.NoActionBar">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".OverlayService"
+                      android:exported="false"
+                      android:foregroundServiceType="specialUse">
+                      <property
+                          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                          android:value="crosshair_overlay" />
+                  </service>
+
+                  <!-- Нужен Shizuku, чтобы менять разрешение экрана (растяг) -->
+                  <provider
+                      android:name="rikka.shizuku.ShizukuProvider"
+                      android:authorities="${applicationId}.shizuku"
+                      android:multiprocess="false"
+                      android:enabled="true"
+                      android:exported="true"
+                      android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
+                  <!-- Читает название играющего трека -->
+                  <service
+                      android:name=".TrackListener"
+                      android:exported="true"
+                      android:label="DENVZ"
+                      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+                      <intent-filter>
+                          <action android:name="android.service.notification.NotificationListenerService" />
+                      </intent-filter>
+                  </service>
+              </application>
+          </manifest>
+          DENVZ_EOF
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'DENVZ_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          DENVZ_EOF
+          cat > app/src/main/res/values/colors.xml <<'DENVZ_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ic_launcher_background">#060201</color>
+          </resources>
+          DENVZ_EOF
+          cat > app/src/main/java/com/denvz/app/Prefs.kt <<'DENVZ_EOF'
+          package com.denvz.app
+
+          import android.content.Context
+          import android.graphics.Color
+
+          enum class Shape { CROSS, T, DOT, HEART, SQUARE, CIRCLE }
+
+          data class CrosshairConfig(
+              var shape: Shape = Shape.CIRCLE,
+              var color: Int = Color.parseColor("#E6E6EA"),
+              var size: Int = 60,
+              var thick: Int = 2,
+              var gap: Int = 6,
+              var alpha: Int = 100,
+              var outline: Boolean = true,
+              var centerDot: Boolean = false
+          )
+
+          data class AppConfig(
+              var gear: Boolean = true,
+              var track: Boolean = true,
+              var trackSec: Int = 4,
+              var stretch: Boolean = false,
+              var ratio: Int = 2,
+              var snow: Boolean = true,
+              var snowAmount: Int = 70,
+              var snowSpeed: Int = 100,
+              var snowSize: Int = 100,
+              var hudFps: Boolean = true,
+              var hudPing: Boolean = true,
+              var hudClock: Boolean = true,
+              var hudBattery: Boolean = false,
+              var pingTarget: Int = 0,
+              var timerSec: Int = 115,
+              var warn: Boolean = true,
+              var hudPos: Int = 0,
+              var theme: Int = 0
+          )
+
+          /** Цветовая тема приложения и меню поверх игры. */
+          class Theme(
+              val name: String,
+              val accent: Int,
+              val soft: Int,
+              val text: Int,
+              val stroke: Int,
+              val selected: Int
+          )
+
+          object Themes {
+              val ALL: List<Theme> = listOf(
+                  Theme("Классика", Color.parseColor("#4C7BD9"), Color.parseColor("#1B2A4D"), Color.parseColor("#A78BFA"), Color.parseColor("#7C5AD6"), Color.parseColor("#8FB0F5")),
+                  Theme("Оранжевая", Color.parseColor("#E5642B"), Color.parseColor("#3A1D0F"), Color.parseColor("#FFA26B"), Color.parseColor("#E5642B"), Color.parseColor("#FFB48A")),
+                  Theme("Зелёная", Color.parseColor("#2FAE5A"), Color.parseColor("#0F2E1B"), Color.parseColor("#6EE79A"), Color.parseColor("#2FAE5A"), Color.parseColor("#8EF0B3")),
+                  Theme("Красная", Color.parseColor("#E0113F"), Color.parseColor("#3A0B16"), Color.parseColor("#FF7A94"), Color.parseColor("#E0113F"), Color.parseColor("#FF9DB0")),
+                  Theme("Голубая", Color.parseColor("#22A6D3"), Color.parseColor("#0E2C38"), Color.parseColor("#6FD6F5"), Color.parseColor("#22A6D3"), Color.parseColor("#9BE4F8"))
+              )
+
+              fun get(index: Int): Theme = ALL.getOrElse(index) { ALL[0] }
+          }
+
+          object Prefs {
+              val PALETTE: List<Int> = listOf(
+                  "#E6E6EA", "#B4B6BD", "#E0113F", "#E0494F", "#E5642B", "#E08A00",
+                  "#E6D23A", "#4CCF5A", "#22D3C5", "#4C9BE8", "#8B5CF6", "#E86BD0"
+              ).map { Color.parseColor(it) }
+
+              val SHAPE_NAMES: Map<Shape, String> = mapOf(
+                  Shape.CROSS to "Крест", Shape.T to "Т-образный", Shape.DOT to "Точка",
+                  Shape.HEART to "Сердечко", Shape.SQUARE to "Квадрат", Shape.CIRCLE to "Круг"
+              )
+
+              private fun sp(c: Context) = c.getSharedPreferences("denvz", Context.MODE_PRIVATE)
+
+              fun load(c: Context): CrosshairConfig {
+                  val p = sp(c)
+                  val d = CrosshairConfig()
+                  return CrosshairConfig(
+                      shape = Shape.values().getOrElse(p.getInt("shape", d.shape.ordinal)) { d.shape },
+                      color = p.getInt("color", d.color),
+                      size = p.getInt("size", d.size),
+                      thick = p.getInt("thick", d.thick),
+                      gap = p.getInt("gap", d.gap),
+                      alpha = p.getInt("alpha", d.alpha),
+                      outline = p.getBoolean("outline", d.outline),
+                      centerDot = p.getBoolean("centerDot", d.centerDot)
+                  )
+              }
+
+              fun save(c: Context, cfg: CrosshairConfig) {
+                  sp(c).edit()
+                      .putInt("shape", cfg.shape.ordinal)
+                      .putInt("color", cfg.color)
+                      .putInt("size", cfg.size)
+                      .putInt("thick", cfg.thick)
+                      .putInt("gap", cfg.gap)
+                      .putInt("alpha", cfg.alpha)
+                      .putBoolean("outline", cfg.outline)
+                      .putBoolean("centerDot", cfg.centerDot)
+                      .apply()
+              }
+
+              fun saveProfile(c: Context, slot: Int, cfg: CrosshairConfig) {
+                  val text = listOf(
+                      cfg.shape.ordinal, cfg.color, cfg.size, cfg.thick, cfg.gap, cfg.alpha,
+                      if (cfg.outline) 1 else 0, if (cfg.centerDot) 1 else 0
+                  ).joinToString(",")
+                  sp(c).edit().putString("profile" + slot, text).apply()
+              }
+
+              fun loadProfile(c: Context, slot: Int): CrosshairConfig? {
+                  val text = sp(c).getString("profile" + slot, null) ?: return null
+                  val v = text.split(",").mapNotNull { it.toIntOrNull() }
+                  if (v.size < 8) return null
+                  return CrosshairConfig(
+                      shape = Shape.values().getOrElse(v[0]) { Shape.CIRCLE },
+                      color = v[1],
+                      size = v[2],
+                      thick = v[3],
+                      gap = v[4],
+                      alpha = v[5],
+                      outline = v[6] == 1,
+                      centerDot = v[7] == 1
+                  )
+              }
+
+              fun loadApp(c: Context): AppConfig {
+                  val p = sp(c)
+                  val d = AppConfig()
+                  return AppConfig(
+                      gear = p.getBoolean("gear", d.gear),
+                      track = p.getBoolean("track", d.track),
+                      trackSec = p.getInt("trackSec", d.trackSec),
+                      stretch = p.getBoolean("stretch", d.stretch),
+                      ratio = p.getInt("ratio", d.ratio),
+                      snow = p.getBoolean("snow", d.snow),
+                      snowAmount = p.getInt("snowAmount", d.snowAmount),
+                      snowSpeed = p.getInt("snowSpeed", d.snowSpeed),
+                      snowSize = p.getInt("snowSize", d.snowSize),
+                      hudFps = p.getBoolean("hudFps", d.hudFps),
+                      hudPing = p.getBoolean("hudPing", d.hudPing),
+                      hudClock = p.getBoolean("hudClock", d.hudClock),
+                      hudBattery = p.getBoolean("hudBattery", d.hudBattery),
+                      pingTarget = p.getInt("pingTarget", d.pingTarget),
+                      timerSec = p.getInt("timerSec", d.timerSec),
+                      warn = p.getBoolean("warn", d.warn),
+                      hudPos = p.getInt("hudPos", d.hudPos),
+                      theme = p.getInt("theme", d.theme)
+                  )
+              }
+
+              fun saveApp(c: Context, a: AppConfig) {
+                  sp(c).edit()
+                      .putBoolean("gear", a.gear)
+                      .putBoolean("track", a.track)
+                      .putInt("trackSec", a.trackSec)
+                      .putBoolean("stretch", a.stretch)
+                      .putInt("ratio", a.ratio)
+                      .putBoolean("snow", a.snow)
+                      .putInt("snowAmount", a.snowAmount)
+                      .putInt("snowSpeed", a.snowSpeed)
+                      .putInt("snowSize", a.snowSize)
+                      .putBoolean("hudFps", a.hudFps)
+                      .putBoolean("hudPing", a.hudPing)
+                      .putBoolean("hudClock", a.hudClock)
+                      .putBoolean("hudBattery", a.hudBattery)
+                      .putInt("pingTarget", a.pingTarget)
+                      .putInt("timerSec", a.timerSec)
+                      .putBoolean("warn", a.warn)
+                      .putInt("hudPos", a.hudPos)
+                      .putInt("theme", a.theme)
+                      .apply()
+              }
+          }
+          DENVZ_EOF
+          cat > app/src/main/java/com/denvz/app/CrosshairView.kt <<'DENVZ_EOF'
+          package com.denvz.app
+
+          import android.content.Context
+          import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.Paint
+          import android.graphics.Path
+          import android.view.View
+
+          /** Рисует прицел по центру своего размера. Используется и в окне поверх игры, и в предпросмотре. */
+          class CrosshairView(context: Context, private var config: CrosshairConfig) : View(context) {
+
+              private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val dp = resources.displayMetrics.density
+
+              fun update(newConfig: CrosshairConfig) {
+                  config = newConfig.copy()
+                  invalidate()
+              }
+
+              override fun onDraw(canvas: Canvas) {
+                  super.onDraw(canvas)
+                  val cx = width / 2f
+                  val cy = height / 2f
+                  if (config.outline) drawAll(canvas, cx, cy, true)
+                  drawAll(canvas, cx, cy, false)
+              }
+
+              private fun drawAll(canvas: Canvas, cx: Float, cy: Float, outline: Boolean) {
+                  val c = config
+                  val size = c.size * dp
+                  val thick = c.thick * dp
+                  val gap = c.gap * dp
+                  val pad = if (outline) dp else 0f
+                  val a = (c.alpha * 255 / 100).coerceIn(0, 255)
+
+                  paint.color = if (outline) {
+                      Color.argb((a * 0.85f).toInt(), 0, 0, 0)
+                  } else {
+                      Color.argb(a, Color.red(c.color), Color.green(c.color), Color.blue(c.color))
+                  }
+                  paint.strokeCap = Paint.Cap.BUTT
+                  paint.strokeWidth = thick + if (outline) 2f * dp else 0f
+
+                  when (c.shape) {
+                      Shape.CROSS, Shape.T -> {
+                          paint.style = Paint.Style.STROKE
+                          val arm = maxOf(size / 2f - gap, dp)
+                          canvas.drawLine(cx - gap - arm - pad, cy, cx - gap, cy, paint)
+                          canvas.drawLine(cx + gap, cy, cx + gap + arm + pad, cy, paint)
+                          if (c.shape == Shape.CROSS) {
+                              canvas.drawLine(cx, cy - gap - arm - pad, cx, cy - gap, paint)
+                          }
+                          canvas.drawLine(cx, cy + gap, cx, cy + gap + arm + pad, paint)
+                      }
+                      Shape.DOT -> {
+                          paint.style = Paint.Style.FILL
+                          canvas.drawCircle(cx, cy, maxOf(size / 2f, thick / 2f) + pad, paint)
+                      }
+                      Shape.CIRCLE -> {
+                          paint.style = Paint.Style.STROKE
+                          canvas.drawCircle(cx, cy, size / 2f, paint)
+                      }
+                      Shape.SQUARE -> {
+                          paint.style = Paint.Style.STROKE
+                          canvas.drawRect(cx - size / 2f, cy - size / 2f, cx + size / 2f, cy + size / 2f, paint)
+                      }
+                      Shape.HEART -> {
+                          val w = size / 2f
+                          val path = Path().apply {
+                              moveTo(cx, cy + w * 0.9f)
+                              cubicTo(cx - w * 1.6f, cy - w * 0.1f, cx - w * 0.9f, cy - w * 1.1f, cx, cy - w * 0.35f)
+                              cubicTo(cx + w * 0.9f, cy - w * 1.1f, cx + w * 1.6f, cy - w * 0.1f, cx, cy + w * 0.9f)
+                              close()
+                          }
+                          if (outline) {
+                              paint.style = Paint.Style.FILL_AND_STROKE
+                              paint.strokeWidth = 2f * dp
+                          } else {
+                              paint.style = Paint.Style.FILL
+                          }
+                          canvas.drawPath(path, paint)
+                      }
+                  }
+
+                  val hasCenter = c.shape == Shape.CROSS || c.shape == Shape.T ||
+                      c.shape == Shape.CIRCLE || c.shape == Shape.SQUARE
+                  if (c.centerDot && hasCenter) {
+                      paint.style = Paint.Style.FILL
+                      canvas.drawCircle(cx, cy, maxOf(thick * 0.9f, 1.5f * dp) + pad, paint)
+                  }
+              }
+          }
+          DENVZ_EOF
+          cat > app/src/main/java/com/denvz/app/SnowView.kt <<'DENVZ_EOF'
+          package com.denvz.app
+
+          import android.content.Context
+          import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.Paint
+          import android.os.SystemClock
+          import android.view.View
+          import kotlin.math.sin
+          import kotlin.random.Random
+
+          /** Падающий снег. Рисуется на весь экран и не мешает нажатиям. */
+          class SnowView(context: Context) : View(context) {
+
+              private class Flake(
+                  var x: Float,
+                  var y: Float,
+                  val r: Float,
+                  val speed: Float,
+                  val drift: Float,
+                  val phase: Float,
+                  val alpha: Int
+              )
+
+              private val density = resources.displayMetrics.density
+              private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+              private val flakes = ArrayList<Flake>()
+              private var last = 0L
+              private var active = false
+              private var count = 70
+              private var speedK = 1f
+              private var sizeK = 1f
+
+              /** Меняет количество (штук), скорость и размер (в процентах). */
+              fun configure(amount: Int, speedPct: Int, sizePct: Int) {
+                  val sp = speedPct / 100f
+                  val sz = sizePct / 100f
+                  if (amount == count && sp == speedK && sz == sizeK) return
+                  count = amount
+                  speedK = sp
+                  sizeK = sz
+                  rebuild()
+              }
+
+              private fun rebuild() {
+                  flakes.clear()
+                  if (width > 0 && height > 0) {
+                      repeat(count) { flakes.add(newFlake(width, height, true)) }
+                  }
+              }
+
+              private fun newFlake(w: Int, h: Int, anywhere: Boolean): Flake {
+                  val r = (1.2f + Random.nextFloat() * 2.8f) * density * sizeK
+                  val y = if (anywhere) Random.nextFloat() * h else -r * 2f - Random.nextFloat() * h * 0.2f
+                  val speed = (35f + (r / density) * 20f + Random.nextFloat() * 30f) * density * speedK
+                  val drift = (Random.nextFloat() - 0.5f) * 24f * density
+                  return Flake(
+                      Random.nextFloat() * w, y, r, speed, drift,
+                      Random.nextFloat() * 6.28f, 110 + Random.nextInt(120)
+                  )
+              }
+
+              override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+                  super.onSizeChanged(w, h, oldw, oldh)
+                  rebuild()
+              }
+
+              override fun onAttachedToWindow() {
+                  super.onAttachedToWindow()
+                  active = true
+                  last = SystemClock.uptimeMillis()
+                  postInvalidateDelayed(33)
+              }
+
+              override fun onDetachedFromWindow() {
+                  active = false
+                  super.onDetachedFromWindow()
+              }
+
+              override fun onDraw(canvas: Canvas) {
+                  val now = SystemClock.uptimeMillis()
+                  val dt = ((now - last).coerceIn(0L, 64L)) / 1000f
+                  last = now
+                  val t = now / 1000f
+                  val w = width
+                  val h = height
+                  for (f in flakes) {
+                      f.y += f.speed * dt
+                      f.x += (f.drift + sin(t * 1.2f + f.phase) * 18f * density) * dt
+                      if (f.y - f.r > h) {
+                          val n = newFlake(w, h, false)
+                          f.y = n.y
+                          f.x = n.x
+                      }
+                      if (f.x < -f.r) f.x = w + f.r
+                      if (f.x > w + f.r) f.x = -f.r
+                      paint.alpha = f.alpha
+                      canvas.drawCircle(f.x, f.y, f.r, paint)
+                  }
+                  // Около 30 кадров в секунду, чтобы не нагружать игру
+                  if (active) postInvalidateDelayed(33)
+              }
+          }
+          DENVZ_EOF
+          cat > app/src/main/java/com/denvz/app/Metrics.kt <<'DENVZ_EOF'
+          package com.denvz.app
+
+          import java.net.InetSocketAddress
+          import java.net.Socket
+          import java.util.concurrent.atomic.AtomicBoolean
+
+          /** FPS игры (через Shizuku) и пинг до интернета. Значение -1 значит «нет данных». */
+          object Metrics {
+              /** Куда меряем пинг: название и адрес (порт 443). */
+              val PING_TARGETS: List<Pair<String, String>> = listOf(
+                  "Google" to "8.8.8.8",
+                  "Cloudflare" to "1.1.1.1",
+                  "Яндекс" to "77.88.8.8"
+              )
+
+              const val FPS_OK = 0
+              const val FPS_NO_SHIZUKU = 1
+              const val FPS_NO_GAME = 2
+
+              @Volatile
+              var fps: Int = -1
+
+              @Volatile
+              var fpsState: Int = FPS_NO_SHIZUKU
+
+              @Volatile
+              var ping: Int = -1
+
+              @Volatile
+              var pingTarget: Int = 0
+
+              private val fpsBusy = AtomicBoolean(false)
+              private val pingBusy = AtomicBoolean(false)
+              private var layers: List<String> = emptyList()
+              private var layerAt = 0L
+
+              const val GAME = "com.axlebolt.standoff2"
+
+              /** Запускает замеры в фоне, чтобы не тормозить экран. */
+              fun refreshAsync(wantFps: Boolean, wantPing: Boolean) {
+                  if (wantFps && fpsBusy.compareAndSet(false, true)) {
+                      Thread {
+                          try {
+                              measureFps()
+                          } finally {
+                              fpsBusy.set(false)
+                          }
+                      }.start()
+                  }
+                  if (wantPing && pingBusy.compareAndSet(false, true)) {
+                      Thread {
+                          try {
+                              measurePing()
+                          } finally {
+                              pingBusy.set(false)
+                          }
+                      }.start()
+                  }
+              }
+
+              private fun measurePing() {
+                  try {
+                      val host = PING_TARGETS.getOrElse(pingTarget) { PING_TARGETS[0] }.second
+                      var best = Int.MAX_VALUE
+                      // Три быстрых замера, берём лучший: так цифра стабильнее.
+                      for (i in 0 until 3) {
+                          val s = Socket()
+                          try {
+                              val t0 = System.nanoTime()
+                              s.connect(InetSocketAddress(host, 443), 1500)
+                              val ms = ((System.nanoTime() - t0) / 1_000_000L).toInt()
+                              if (ms < best) best = ms
+                          } finally {
+                              try {
+                                  s.close()
+                              } catch (_: Throwable) {
+                              }
+                          }
+                      }
+                      ping = if (best == Int.MAX_VALUE) -1 else best
+                  } catch (_: Throwable) {
+                      ping = -1
+                  }
+              }
+
+              /** Все слои игры. Сначала самые вероятные (поверхность с картинкой). */
+              private fun findLayers(): List<String> {
+                  val out = Stretch.shell(arrayOf("dumpsys", "SurfaceFlinger", "--list"))
+                  val lines = out.lines().map { it.trim() }.filter { it.contains(GAME) }
+                  return lines.sortedBy {
+                      when {
+                          it.startsWith("SurfaceView") -> 0
+                          it.contains("Background") -> 3
+                          it.contains("Bounds") -> 3
+                          else -> 1
+                      }
+                  }
+              }
+
+              /** Возвращает fps слоя или -1, если свежих кадров нет. */
+              private fun fpsOfLayer(name: String): Int {
+                  val out = Stretch.shell(arrayOf("dumpsys", "SurfaceFlinger", "--latency", name))
+                  val rows = out.lines().drop(1)
+                  val pending = Long.MAX_VALUE / 2
+                  // Колонки: желаемое время, время показа, время готовности. Пробуем показ, потом готовность.
+                  for (col in intArrayOf(1, 2, 0)) {
+                      val times = ArrayList<Long>()
+                      for (line in rows) {
+                          val parts = line.trim().split(Regex("\\s+"))
+                          if (parts.size > col) {
+                              val t = parts[col].toLongOrNull() ?: continue
+                              if (t > 0L && t < pending) times.add(t)
+                          }
+                      }
+                      val last = times.maxOrNull() ?: continue
+                      if (times.size < 2) continue
+                      // Если последний кадр старше 2 секунд, слой мёртвый.
+                      if (System.nanoTime() - last > 2_000_000_000L) continue
+                      val n = times.count { it > last - 1_000_000_000L }
+                      if (n > 0) return n
+                  }
+                  return -1
+              }
+
+
+              private var tsEnabled = false
+              private var tsAt = 0L
+              private val tsPrev = HashMap<String, Long>()
+
+              /** Запасной способ: считаем, сколько кадров игра отдала с прошлого замера. */
+              private fun fpsFromTimeStats(): Int {
+                  if (!tsEnabled) {
+                      Stretch.shell(arrayOf("dumpsys", "SurfaceFlinger", "--timestats", "-enable"))
+                      tsEnabled = true
+                      tsAt = 0L
+                      return -1
+                  }
+                  val out = Stretch.shell(arrayOf("dumpsys", "SurfaceFlinger", "--timestats", "-dump", "-maxlayers", "100"))
+                  val now = System.currentTimeMillis()
+                  val cur = HashMap<String, Long>()
+                  var name = ""
+                  var inGame = false
+                  for (line in out.lines()) {
+                      val t = line.trim()
+                      if (t.startsWith("layerName")) {
+                          name = t
+                          inGame = t.contains(GAME)
+                      } else if (t.startsWith("packageName")) {
+                          if (t.contains(GAME)) inGame = true
+                      } else if (t.startsWith("totalFrames") && inGame) {
+                          val n = t.substringAfter("=").trim().toLongOrNull()
+                          if (n != null) cur[name] = n
+                      }
+                  }
+                  var result = -1
+                  if (tsAt > 0L && now - tsAt >= 700L) {
+                      var bestDelta = -1L
+                      for ((k, v) in cur) {
+                          val before = tsPrev[k] ?: continue
+                          val d = v - before
+                          if (d > bestDelta) bestDelta = d
+                      }
+                      if (bestDelta >= 0L) result = (bestDelta * 1000L / (now - tsAt)).toInt()
+                  }
+                  if (tsAt == 0L || now - tsAt >= 700L) {
+                      tsPrev.clear()
+                      tsPrev.putAll(cur)
+                      tsAt = now
+                  }
+                  return result
+              }
+
+              /** Текст для проверки: что отвечает система. Зовите не из главного потока. */
+              fun diagnose(): String {
+                  val sb = StringBuilder()
+                  sb.append("Shizuku запущен: ").append(Stretch.running()).append('\n')
+                  sb.append("Доступ выдан: ").append(Stretch.granted()).append('\n')
+                  if (!Stretch.granted()) return sb.toString()
+                  try {
+                      sb.append("Игра запущена: ").append(Stretch.gameRunning()).append('\n')
+                      val list = Stretch.shell(arrayOf("dumpsys", "SurfaceFlinger", "--list"))
+                      val game = list.lines().map { it.trim() }.filter { it.contains(GAME) }
+                      sb.append("Слоёв игры: ").append(game.size).append('\n')
+                      for (l in game.take(6)) sb.append("  ").append(l.take(90)).append('\n')
+                      if (game.isEmpty()) {
+                          sb.append("Все слои (первые 8):\n")
+                          for (l in list.lines().take(8)) sb.append("  ").append(l.take(90)).append('\n')
+                      }
+                      val first = game.firstOrNull()
+                      if (first != null) {
+                          val lat = Stretch.shell(arrayOf("dumpsys", "SurfaceFlinger", "--latency", first))
+                          sb.append("latency (первые строки):\n")
+                          for (l in lat.lines().take(5)) sb.append("  ").append(l.take(80)).append('\n')
+                      }
+                      Stretch.shell(arrayOf("dumpsys", "SurfaceFlinger", "--timestats", "-enable"))
+                      val ts = Stretch.shell(arrayOf("dumpsys", "SurfaceFlinger", "--timestats", "-dump", "-maxlayers", "100"))
+                      val tl = ts.lines().map { it.trim() }.filter { it.startsWith("layerName") || it.startsWith("totalFrames") }
+                      sb.append("timestats строк: ").append(tl.size).append('\n')
+                      for (l in tl.filter { it.contains(GAME) }.take(4)) sb.append("  ").append(l.take(90)).append('\n')
+                      sb.append("Итог FPS сейчас: ").append(fps).append('\n')
+                  } catch (e: Throwable) {
+                      sb.append("Ошибка: ").append(e.message).append('\n')
+                  }
+                  return sb.toString()
+              }
+
+              private fun measureFps() {
+                  try {
+                      if (!Stretch.granted()) {
+                          fps = -1
+                          fpsState = FPS_NO_SHIZUKU
+                          return
+                      }
+                      val now = System.currentTimeMillis()
+                      if (layers.isEmpty() || now - layerAt > 10000L) {
+                          layers = findLayers()
+                          layerAt = now
+                      }
+                      var best = -1
+                      if (layers.isEmpty()) {
+                          best = fpsFromTimeStats()
+                          fps = best
+                          fpsState = if (best >= 0) FPS_OK else FPS_NO_GAME
+                          return
+                      }
+                      for (l in layers.take(4)) {
+                          val v = fpsOfLayer(l)
+                          if (v > best) best = v
+                      }
+                      if (best < 0) best = fpsFromTimeStats()
+                      if (best < 0) {
+                          layers = emptyList()
+                          fps = -1
+                          fpsState = FPS_NO_GAME
+                      } else {
+                          fps = best
+                          fpsState = FPS_OK
+                      }
+                  } catch (_: Throwable) {
+                      fps = -1
+                      fpsState = FPS_NO_GAME
+                  }
+              }
+          }
+          DENVZ_EOF
+          cat > app/src/main/java/com/denvz/app/OverlayService.kt <<'DENVZ_EOF'
+          package com.denvz.app
+
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.app.Service
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.ServiceInfo
+          import android.graphics.Color
+          import android.graphics.PixelFormat
+          import android.graphics.Typeface
+          import android.graphics.drawable.GradientDrawable
+          import android.graphics.drawable.Icon
+          import android.media.session.PlaybackState
+          import android.os.Build
+          import android.os.Handler
+          import android.os.IBinder
+          import android.os.Looper
+          import android.os.SystemClock
+          import android.provider.Settings
+          import android.text.SpannableStringBuilder
+          import android.text.Spanned
+          import android.text.TextUtils
+          import android.text.style.ForegroundColorSpan
+          import android.view.Gravity
+          import android.view.MotionEvent
+          import android.view.View
+          import android.view.WindowManager
+          import android.view.animation.OvershootInterpolator
+          import android.widget.ImageView
+          import android.widget.LinearLayout
+          import android.widget.TextView
+          import kotlin.math.abs
+
+          /** Держит прицел, шестерёнку с меню и название трека в окнах поверх других приложений. */
+          class OverlayService : Service() {
+
+              private lateinit var wm: WindowManager
+              private val handler = Handler(Looper.getMainLooper())
+
+              private var cfg = CrosshairConfig()
+              private var app = AppConfig()
+              private var crossOn = true
+
+              private var cross: CrosshairView? = null
+              private var crossLp: WindowManager.LayoutParams? = null
+              private var gear: TextView? = null
+              private var gearLp: WindowManager.LayoutParams? = null
+              private var menu: LinearLayout? = null
+              private var menuLp: WindowManager.LayoutParams? = null
+              private var plate: TextView? = null
+              private var splash: LinearLayout? = null
+              private var snow: SnowView? = null
+              private var hud: TextView? = null
+              private var hudTicks = 0
+              private var hudPosShown = 0
+              private var diagText: String? = null
+              private var menuPage = 0
+              private var kills = 0
+              private var timerEnd = 0L
+              private val hudTick = object : Runnable {
+                  override fun run() {
+                      updateHud()
+                      if (hud != null) handler.postDelayed(this, 1000L)
+                  }
+              }
+
+              private val stretchBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+              private var stretchHandled = false
+              private var stretchSeen = false
+              private val stretchTick = object : Runnable {
+                  override fun run() {
+                      autoStretch()
+                      handler.postDelayed(this, 2500L)
+                  }
+              }
+
+              private val hidePlate = Runnable { removePlate() }
+
+              private var violet = Color.parseColor("#7C5AD6")
+              private var violetText = Color.parseColor("#A78BFA")
+              private val panel = Color.argb(235, 8, 8, 14)
+              private val chipBg = Color.parseColor("#1F1F2E")
+              private val white = Color.parseColor("#EDEDF2")
+              private val muted = Color.parseColor("#9A9AA8")
+
+              private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onCreate() {
+                  super.onCreate()
+                  wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  if (intent?.action == ACTION_STOP) {
+                      shutdown()
+                      return START_NOT_STICKY
+                  }
+                  startAsForeground()
+                  if (!Settings.canDrawOverlays(this)) {
+                      shutdown()
+                      return START_NOT_STICKY
+                  }
+                  val first = !running
+                  instance = this
+                  cfg = Prefs.load(this)
+                  app = Prefs.loadApp(this)
+                  val theme = Themes.get(app.theme)
+                  violet = theme.stroke
+                  violetText = theme.text
+                  syncSnow()
+                  syncHud()
+                  syncStretchWatch()
+                  syncCross()
+                  syncGear()
+                  running = true
+                  if (first) playSplash(false, null)
+                  return START_STICKY
+              }
+
+              override fun onDestroy() {
+                  removeAll()
+                  running = false
+                  instance = null
+                  super.onDestroy()
+              }
+
+              // ---------- окна ----------
+
+              private fun params(w: Int, h: Int, touchable: Boolean): WindowManager.LayoutParams {
+                  var flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                      WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                      WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                  if (!touchable) flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                  return WindowManager.LayoutParams(
+                      w, h, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, flags, PixelFormat.TRANSLUCENT
+                  )
+              }
+
+              private fun safeUpdate(v: View, p: WindowManager.LayoutParams) {
+                  try {
+                      wm.updateViewLayout(v, p)
+                  } catch (_: Exception) {
+                  }
+              }
+
+              private fun safeRemove(v: View?) {
+                  if (v == null) return
+                  try {
+                      wm.removeView(v)
+                  } catch (_: Exception) {
+                  }
+              }
+
+              private fun removeAll() {
+                  handler.removeCallbacks(hidePlate)
+                  removePlate()
+                  removeMenu()
+                  safeRemove(splash); splash = null
+                  safeRemove(gear); gear = null
+                  safeRemove(cross); cross = null
+                  safeRemove(snow); snow = null
+                  handler.removeCallbacks(hudTick)
+                  handler.removeCallbacks(stretchTick)
+                  safeRemove(hud); hud = null
+              }
+
+              // ---------- растяг сам: включается при запуске игры, выключается при выходе ----------
+
+              private fun syncStretchWatch() {
+                  handler.removeCallbacks(stretchTick)
+                  if (app.stretch) handler.postDelayed(stretchTick, 1500L)
+              }
+
+              private fun autoStretch() {
+                  if (!app.stretch || !Stretch.granted()) return
+                  if (!stretchBusy.compareAndSet(false, true)) return
+                  Thread {
+                      try {
+                          val game = Stretch.gameRunning()
+                          if (game) {
+                              stretchSeen = true
+                              if (!Stretch.applied && !stretchHandled) {
+                                  stretchHandled = true
+                                  Stretch.apply(app.ratio) { _, _ -> }
+                              }
+                          } else {
+                              stretchHandled = false
+                              if (stretchSeen && Stretch.applied) Stretch.reset()
+                              stretchSeen = false
+                          }
+                      } finally {
+                          stretchBusy.set(false)
+                      }
+                  }.start()
+              }
+
+              // ---------- рамка: FPS, пинг, часы, батарея ----------
+
+              private fun syncHud() {
+                  val any = app.hudFps || app.hudPing || app.hudClock || app.hudBattery || kills > 0 || timerEnd > 0L
+                  if (!any || !Settings.canDrawOverlays(this)) {
+                      handler.removeCallbacks(hudTick)
+                      safeRemove(hud)
+                      hud = null
+                      return
+                  }
+                  if (hud != null && hudPosShown != app.hudPos) {
+                      safeRemove(hud)
+                      hud = null
+                  }
+                  if (hud == null) {
+                      val t = TextView(this).apply {
+                          textSize = 12f
+                          setTextColor(white)
+                          typeface = Typeface.MONOSPACE
+                          setPadding(dp(10), dp(4), dp(10), dp(4))
+                          background = GradientDrawable().apply {
+                              setColor(Color.argb(190, 8, 8, 14))
+                              cornerRadius = dp(10).toFloat()
+                              setStroke(dp(1), violet)
+                          }
+                      }
+                      val p = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, false)
+                      val side = when (app.hudPos) {
+                          1 -> Gravity.START
+                          2 -> Gravity.END
+                          else -> Gravity.CENTER_HORIZONTAL
+                      }
+                      p.gravity = Gravity.TOP or side
+                      p.x = if (app.hudPos == 0) 0 else dp(8)
+                      p.y = dp(6)
+                      try {
+                          wm.addView(t, p)
+                          hud = t
+                          hudPosShown = app.hudPos
+                      } catch (_: Exception) {
+                          return
+                      }
+                  }
+                  handler.removeCallbacks(hudTick)
+                  handler.post(hudTick)
+              }
+
+              private fun batteryPercent(): Int {
+                  val i = registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return -1
+                  val level = i.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
+                  val scale = i.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1)
+                  return if (level >= 0 && scale > 0) level * 100 / scale else -1
+              }
+
+              private fun updateHud() {
+                  val t = hud ?: return
+                  hudTicks++
+                  Metrics.pingTarget = app.pingTarget
+                  Metrics.refreshAsync(app.hudFps, app.hudPing && hudTicks % 2 == 0)
+                  val good = Color.parseColor("#4CCF5A")
+                  val mid = Color.parseColor("#E6D23A")
+                  val bad = Color.parseColor("#E0494F")
+                  val sb = SpannableStringBuilder()
+                  fun add(text: String, color: Int) {
+                      if (sb.isNotEmpty()) sb.append("  ")
+                      val start = sb.length
+                      sb.append(text)
+                      sb.setSpan(ForegroundColorSpan(color), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                  }
+                  if (app.hudFps) {
+                      val f = Metrics.fps
+                      when {
+                          f >= 0 -> add("FPS $f", if (f >= 55) good else if (f >= 30) mid else bad)
+                          Metrics.fpsState == Metrics.FPS_NO_SHIZUKU -> add("FPS: нужен Shizuku", muted)
+                          else -> add("FPS --", muted)
+                      }
+                  }
+                  if (app.hudPing) {
+                      val p = Metrics.ping
+                      if (p >= 0) add("Пинг $p", if (p <= 60) good else if (p <= 120) mid else bad) else add("Пинг --", muted)
+                  }
+                  if (app.hudClock) {
+                      add(java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date()), white)
+                  }
+                  val b = batteryPercent()
+                  if (app.hudBattery) {
+                      if (b >= 0) add("$b%", if (b >= 40) white else if (b >= 20) mid else bad)
+                  }
+                  if (kills > 0) add("Уб $kills", white)
+                  if (timerEnd > 0L) {
+                      val left = ((timerEnd - SystemClock.elapsedRealtime() + 999L) / 1000L).toInt()
+                      if (left > 0) {
+                          add("Таймер " + fmtTime(left), if (left <= 10) bad else white)
+                      } else {
+                          add("Таймер 0:00", bad)
+                          timerEnd = 0L
+                      }
+                  }
+                  val alert = app.warn && ((app.hudPing && Metrics.ping >= 150) || (b in 0..15))
+                  (t.background as? GradientDrawable)?.setColor(
+                      if (alert) Color.argb(225, 120, 12, 26) else Color.argb(190, 8, 8, 14)
+                  )
+                  if (sb.isEmpty()) {
+                      safeRemove(hud)
+                      hud = null
+                      return
+                  }
+                  t.text = sb
+              }
+
+              // ---------- снег ----------
+
+              private fun syncSnow() {
+                  if (!app.snow || !Settings.canDrawOverlays(this)) {
+                      safeRemove(snow)
+                      snow = null
+                      return
+                  }
+                  snow?.configure(app.snowAmount, app.snowSpeed, app.snowSize)
+                  if (snow != null) return
+                  val v = SnowView(this)
+                  v.configure(app.snowAmount, app.snowSpeed, app.snowSize)
+                  val p = params(
+                      WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT, false
+                  )
+                  p.gravity = Gravity.TOP or Gravity.START
+                  try {
+                      wm.addView(v, p)
+                      snow = v
+                  } catch (_: Exception) {
+                  }
+              }
+
+              private fun shutdown() {
+                  if (Stretch.applied) Stretch.reset()
+                  val wasRunning = running
+                  removeAll()
+                  running = false
+                  instance = null
+                  stopForeground(STOP_FOREGROUND_REMOVE)
+                  if (wasRunning && Settings.canDrawOverlays(this)) {
+                      playSplash(true) { if (!running) stopSelf() }
+                  } else {
+                      stopSelf()
+                  }
+              }
+
+              // ---------- заставка: аватарка VZ и название DENVZ ----------
+
+              private fun playSplash(outro: Boolean, done: (() -> Unit)?) {
+                  if (!Settings.canDrawOverlays(this)) {
+                      done?.invoke()
+                      return
+                  }
+                  safeRemove(splash)
+                  splash = null
+
+                  val box = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      gravity = Gravity.CENTER
+                      alpha = 0f
+                  }
+                  val img = ImageView(this).apply {
+                      setImageResource(R.drawable.ic_launcher_foreground)
+                  }
+                  box.addView(img, LinearLayout.LayoutParams(dp(150), dp(150)))
+                  val name = TextView(this).apply {
+                      text = "DENVZ"
+                      textSize = 32f
+                      gravity = Gravity.CENTER
+                      letterSpacing = 0.25f
+                      setTypeface(typeface, Typeface.BOLD)
+                      setTextColor(violetText)
+                      setShadowLayer(dp(12).toFloat(), 0f, 0f, violet)
+                  }
+                  box.addView(name, LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                  ))
+
+                  val p = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, false)
+                  p.gravity = Gravity.CENTER
+                  try {
+                      wm.addView(box, p)
+                  } catch (_: Exception) {
+                      done?.invoke()
+                      return
+                  }
+                  splash = box
+
+                  val finish = Runnable {
+                      safeRemove(box)
+                      if (splash === box) splash = null
+                      done?.invoke()
+                  }
+
+                  if (!outro) {
+                      box.scaleX = 0.6f
+                      box.scaleY = 0.6f
+                      box.animate().alpha(1f).scaleX(1f).scaleY(1f)
+                          .setDuration(450)
+                          .setInterpolator(OvershootInterpolator())
+                          .withEndAction {
+                              box.animate().alpha(0f).scaleX(1.15f).scaleY(1.15f)
+                                  .setStartDelay(1100)
+                                  .setDuration(450)
+                                  .withEndAction(finish)
+                                  .start()
+                          }
+                          .start()
+                  } else {
+                      box.scaleX = 1.1f
+                      box.scaleY = 1.1f
+                      box.animate().alpha(1f).scaleX(1f).scaleY(1f)
+                          .setDuration(250)
+                          .withEndAction {
+                              box.animate().alpha(0f).scaleX(0.6f).scaleY(0.6f)
+                                  .setStartDelay(250)
+                                  .setDuration(350)
+                                  .withEndAction(finish)
+                                  .start()
+                          }
+                          .start()
+                  }
+              }
+
+              // ---------- прицел ----------
+
+              private fun syncCross() {
+                  val ext = (maxOf(cfg.size + 24, 48) * resources.displayMetrics.density).toInt()
+                  val current = cross
+                  if (current == null) {
+                      val v = CrosshairView(this, cfg)
+                      val p = params(ext, ext, false)
+                      p.gravity = Gravity.CENTER
+                      wm.addView(v, p)
+                      cross = v
+                      crossLp = p
+                  } else {
+                      current.update(cfg)
+                      val p = crossLp ?: return
+                      p.width = ext
+                      p.height = ext
+                      safeUpdate(current, p)
+                  }
+                  cross?.visibility = if (crossOn) View.VISIBLE else View.INVISIBLE
+              }
+
+              // ---------- шестерёнка ----------
+
+              private fun syncGear() {
+                  if (!app.gear) {
+                      removeMenu()
+                      safeRemove(gear)
+                      gear = null
+                      return
+                  }
+                  if (gear != null) return
+
+                  val g = TextView(this).apply {
+                      text = "⚙"
+                      textSize = 22f
+                      gravity = Gravity.CENTER
+                      setTextColor(Color.parseColor("#D9D9E2"))
+                      background = GradientDrawable().apply {
+                          shape = GradientDrawable.OVAL
+                          setColor(Color.argb(220, 8, 8, 14))
+                          setStroke(dp(1), violet)
+                      }
+                  }
+                  val p = params(dp(44), dp(44), true)
+                  p.gravity = Gravity.TOP or Gravity.START
+                  p.x = dp(6)
+                  p.y = resources.displayMetrics.heightPixels / 3
+
+                  var downX = 0f
+                  var downY = 0f
+                  var startX = 0
+                  var startY = 0
+                  var moved = false
+                  g.setOnTouchListener { v, e ->
+                      when (e.action) {
+                          MotionEvent.ACTION_DOWN -> {
+                              downX = e.rawX; downY = e.rawY
+                              startX = p.x; startY = p.y
+                              moved = false
+                              true
+                          }
+                          MotionEvent.ACTION_MOVE -> {
+                              val dx = e.rawX - downX
+                              val dy = e.rawY - downY
+                              if (abs(dx) > dp(6) || abs(dy) > dp(6)) moved = true
+                              if (moved) {
+                                  p.x = startX + dx.toInt()
+                                  p.y = startY + dy.toInt()
+                                  safeUpdate(v, p)
+                                  positionMenu()
+                              }
+                              true
+                          }
+                          MotionEvent.ACTION_UP -> {
+                              if (!moved) toggleMenu()
+                              true
+                          }
+                          else -> false
+                      }
+                  }
+                  wm.addView(g, p)
+                  gear = g
+                  gearLp = p
+              }
+
+              // ---------- меню ----------
+
+              private fun toggleMenu() {
+                  if (menu == null) openMenu() else removeMenu()
+              }
+
+              private fun openMenu() {
+                  val m = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(dp(12), dp(10), dp(12), dp(10))
+                      background = GradientDrawable().apply {
+                          setColor(panel)
+                          cornerRadius = dp(16).toFloat()
+                          setStroke(dp(1), violet)
+                      }
+                  }
+                  val p = params(dp(250), WindowManager.LayoutParams.WRAP_CONTENT, true)
+                  p.gravity = Gravity.TOP or Gravity.START
+                  menu = m
+                  menuLp = p
+                  positionMenu()
+                  fillMenu()
+                  wm.addView(m, p)
+              }
+
+              private fun removeMenu() {
+                  safeRemove(menu)
+                  menu = null
+                  menuLp = null
+              }
+
+              private fun positionMenu() {
+                  val p = menuLp ?: return
+                  val g = gearLp ?: return
+                  p.x = g.x + dp(50)
+                  p.y = g.y
+                  menu?.let { safeUpdate(it, p) }
+              }
+
+              private fun label(text: String, sp: Float, color: Int, bold: Boolean = false) = TextView(this).apply {
+                  this.text = text
+                  textSize = sp
+                  setTextColor(color)
+                  if (bold) setTypeface(typeface, Typeface.BOLD)
+              }
+
+              private fun chip(text: String, onClick: () -> Unit) = TextView(this).apply {
+                  this.text = text
+                  textSize = 15f
+                  setTextColor(white)
+                  gravity = Gravity.CENTER
+                  minWidth = dp(40)
+                  minHeight = dp(36)
+                  setPadding(dp(8), dp(4), dp(8), dp(4))
+                  background = GradientDrawable().apply {
+                      setColor(chipBg)
+                      cornerRadius = dp(10).toFloat()
+                  }
+                  setOnClickListener { onClick() }
+              }
+
+              private fun row(title: String, vararg views: View): LinearLayout {
+                  val r = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER_VERTICAL
+                      setPadding(0, dp(3), 0, dp(3))
+                  }
+                  val t = label(title, 14f, muted)
+                  r.addView(t, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                  for (v in views) {
+                      val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                      lp.leftMargin = dp(6)
+                      r.addView(v, lp)
+                  }
+                  return r
+              }
+
+              private fun changed() {
+                  Prefs.save(this, cfg)
+                  syncCross()
+                  fillMenu()
+              }
+
+              private fun fillMenu() {
+                  val m = menu ?: return
+                  m.removeAllViews()
+                  m.addView(label("DENVZ", 16f, violetText, true))
+
+                  val shown = diagText
+                  if (shown != null) {
+                      m.addView(label(shown, 10f, white))
+                      m.addView(chip("Закрыть проверку") {
+                          diagText = null
+                          fillMenu()
+                      }, LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                      ).apply { topMargin = dp(8) })
+                      menuLp?.let { p -> safeUpdate(m, p) }
+                      return
+                  }
+
+                  val tabNames = listOf("Прицел", "Игра", "Система")
+                  for (i in tabNames.indices) {
+                      val on = i == menuPage
+                      val item = TextView(this).apply {
+                          text = "0" + (i + 1) + "   " + tabNames[i]
+                          textSize = 14f
+                          setTextColor(if (on) violetText else white)
+                          setTypeface(typeface, if (on) Typeface.BOLD else Typeface.NORMAL)
+                          setPadding(dp(12), dp(8), dp(12), dp(8))
+                          background = GradientDrawable().apply {
+                              setColor(if (on) chipBg else Color.TRANSPARENT)
+                              cornerRadius = dp(10).toFloat()
+                              if (on) setStroke(dp(1), violet)
+                          }
+                          setOnClickListener {
+                              menuPage = i
+                              fillMenu()
+                          }
+                      }
+                      m.addView(item, LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                      ).apply { topMargin = dp(4) })
+                  }
+                  m.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)).apply {
+                      topMargin = dp(6)
+                      bottomMargin = dp(4)
+                  })
+
+                  if (menuPage == 0) {
+                      m.addView(row("Прицел", chip(if (crossOn) "Вкл" else "Выкл") {
+                          crossOn = !crossOn
+                          syncCross()
+                          fillMenu()
+                      }))
+
+                      val shapes = Shape.values()
+                      m.addView(row(
+                          "Форма",
+                          chip("<") { cfg.shape = shapes[(cfg.shape.ordinal + shapes.size - 1) % shapes.size]; changed() },
+                          label(Prefs.SHAPE_NAMES[cfg.shape] ?: "", 14f, white).apply {
+                              gravity = Gravity.CENTER
+                              minWidth = dp(70)
+                          },
+                          chip(">") { cfg.shape = shapes[(cfg.shape.ordinal + 1) % shapes.size]; changed() }
+                      ))
+
+                      m.addView(row(
+                          "Размер",
+                          chip("-") { cfg.size = maxOf(8, cfg.size - 4); changed() },
+                          label(cfg.size.toString(), 14f, white).apply { gravity = Gravity.CENTER; minWidth = dp(32) },
+                          chip("+") { cfg.size = minOf(120, cfg.size + 4); changed() }
+                      ))
+
+                      m.addView(row(
+                          "Толщина",
+                          chip("-") { cfg.thick = maxOf(1, cfg.thick - 1); changed() },
+                          label(cfg.thick.toString(), 14f, white).apply { gravity = Gravity.CENTER; minWidth = dp(32) },
+                          chip("+") { cfg.thick = minOf(10, cfg.thick + 1); changed() }
+                      ))
+
+                      val swatch = View(this).apply {
+                          background = GradientDrawable().apply {
+                              shape = GradientDrawable.OVAL
+                              setColor(cfg.color)
+                              setStroke(dp(2), white)
+                          }
+                          setOnClickListener {
+                              val idx = Prefs.PALETTE.indexOf(cfg.color)
+                              cfg.color = Prefs.PALETTE[(idx + 1) % Prefs.PALETTE.size]
+                              changed()
+                          }
+                      }
+                      val sw = LinearLayout.LayoutParams(dp(36), dp(36))
+                      val colorRow = row("Цвет (нажмите)")
+                      colorRow.addView(swatch, sw)
+                      m.addView(colorRow)
+
+
+                      m.addView(row(
+                          "Загрузить",
+                          chip("1") { loadProfile(0) },
+                          chip("2") { loadProfile(1) },
+                          chip("3") { loadProfile(2) }
+                      ))
+                      m.addView(row(
+                          "Сохранить",
+                          chip("1") { saveProfile(0) },
+                          chip("2") { saveProfile(1) },
+                          chip("3") { saveProfile(2) }
+                      ))
+                  }
+
+                  if (menuPage == 1) {
+
+                      m.addView(row(
+                          "Убийства",
+                          chip("-") { kills = maxOf(0, kills - 1); killsChanged() },
+                          label(kills.toString(), 14f, white).apply { gravity = Gravity.CENTER; minWidth = dp(28) },
+                          chip("+") { kills += 1; killsChanged() }
+                      ))
+                      m.addView(row("Обнулить счёт", chip("0") { kills = 0; killsChanged() }))
+                      m.addView(row("Таймер раунда", chip(if (timerEnd > 0L) "Стоп" else "Старт") {
+                          timerEnd = if (timerEnd > 0L) 0L else SystemClock.elapsedRealtime() + app.timerSec * 1000L
+                          syncHud()
+                          fillMenu()
+                      }))
+                      m.addView(row(
+                          "Длина",
+                          chip("-") { app.timerSec = maxOf(10, app.timerSec - 5); Prefs.saveApp(this, app); fillMenu() },
+                          label(fmtTime(app.timerSec), 14f, white).apply { gravity = Gravity.CENTER; minWidth = dp(44) },
+                          chip("+") { app.timerSec = minOf(300, app.timerSec + 5); Prefs.saveApp(this, app); fillMenu() }
+                      ))
+
+                      m.addView(row("Название трека", chip(if (app.track) "Вкл" else "Выкл") {
+                          app.track = !app.track
+                          Prefs.saveApp(this, app)
+                          fillMenu()
+                      }))
+
+                      m.addView(row("Снег", chip(if (app.snow) "Вкл" else "Выкл") {
+                          app.snow = !app.snow
+                          Prefs.saveApp(this, app)
+                          syncSnow()
+                          fillMenu()
+                      }))
+
+                      val c = TrackListener.controller
+                      if (c != null) {
+                          val playing = c.playbackState?.state == PlaybackState.STATE_PLAYING
+                          m.addView(row(
+                              "Музыка",
+                              chip("⏮") { c.transportControls.skipToPrevious() },
+                              chip(if (playing) "⏸" else "▶") {
+                                  if (playing) c.transportControls.pause() else c.transportControls.play()
+                                  handler.postDelayed({ fillMenu() }, 300)
+                              },
+                              chip("⏭") { c.transportControls.skipToNext() }
+                          ))
+                      }
+
+                  }
+
+                  if (menuPage == 2) {
+                      if (Stretch.granted()) {
+                          m.addView(row("Растяг", chip(if (Stretch.applied) "Выключить" else "Включить") {
+                              if (Stretch.applied) {
+                                  Stretch.reset { _, _ -> fillMenu() }
+                              } else {
+                                  Stretch.apply(app.ratio) { _, _ -> fillMenu() }
+                              }
+                          }))
+                          val n = Stretch.RATIOS.size
+                          m.addView(row(
+                              "Формат",
+                              chip("<") { stepRatio(n - 1) },
+                              label(Stretch.RATIOS.getOrElse(app.ratio) { Stretch.RATIOS[2] }.first, 14f, white).apply {
+                                  gravity = Gravity.CENTER
+                                  minWidth = dp(56)
+                              },
+                              chip(">") { stepRatio(1) }
+                          ))
+                      }
+
+                      m.addView(row("FPS", chip("Проверить") {
+                          diagText = "Проверяю..."
+                          fillMenu()
+                          Thread {
+                              val t = Metrics.diagnose()
+                              handler.post {
+                                  diagText = t
+                                  fillMenu()
+                              }
+                          }.start()
+                      }))
+                  }
+
+                  m.addView(chip("Закрыть меню") { removeMenu() }, LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                  ).apply { topMargin = dp(8) })
+
+                  menuLp?.let { p -> m.let { safeUpdate(it, p) } }
+              }
+
+              private fun fmtTime(sec: Int): String = (sec / 60).toString() + ":" + (sec % 60).toString().padStart(2, '0')
+
+              private fun killsChanged() {
+                  syncHud()
+                  updateHud()
+                  fillMenu()
+              }
+
+              private fun toast(text: String) {
+                  android.widget.Toast.makeText(this, text, android.widget.Toast.LENGTH_SHORT).show()
+              }
+
+              private fun loadProfile(slot: Int) {
+                  val p = Prefs.loadProfile(this, slot)
+                  if (p == null) {
+                      toast("Профиль " + (slot + 1) + " пуст")
+                      return
+                  }
+                  cfg = p
+                  changed()
+              }
+
+              private fun saveProfile(slot: Int) {
+                  Prefs.saveProfile(this, slot, cfg)
+                  toast("Прицел сохранён в профиль " + (slot + 1))
+              }
+
+              private fun stepRatio(delta: Int) {
+                  val n = Stretch.RATIOS.size
+                  app.ratio = (app.ratio + delta) % n
+                  Prefs.saveApp(this, app)
+                  if (Stretch.applied) {
+                      Stretch.apply(app.ratio) { _, _ -> fillMenu() }
+                  } else {
+                      fillMenu()
+                  }
+              }
+
+              // ---------- название трека ----------
+
+              fun showTrack(text: String) {
+                  handler.post {
+                      if (!app.track || !Settings.canDrawOverlays(this)) return@post
+                      val shown = "♪  $text"
+                      val existing = plate
+                      if (existing != null) {
+                          existing.text = shown
+                      } else {
+                          val t = TextView(this).apply {
+                              this.text = shown
+                              textSize = 14f
+                              setTextColor(white)
+                              maxLines = 1
+                              ellipsize = TextUtils.TruncateAt.END
+                              maxWidth = dp(260)
+                              setPadding(dp(14), dp(8), dp(14), dp(8))
+                              background = GradientDrawable().apply {
+                                  setColor(panel)
+                                  cornerRadii = floatArrayOf(
+                                      dp(14).toFloat(), dp(14).toFloat(), 0f, 0f, 0f, 0f, dp(14).toFloat(), dp(14).toFloat()
+                                  )
+                                  setStroke(dp(1), violet)
+                              }
+                          }
+                          val p = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, false)
+                          p.gravity = Gravity.TOP or Gravity.END
+                          p.y = resources.displayMetrics.heightPixels / 4
+                          wm.addView(t, p)
+                          plate = t
+                      }
+                      handler.removeCallbacks(hidePlate)
+                      handler.postDelayed(hidePlate, app.trackSec * 1000L)
+                  }
+              }
+
+              private fun removePlate() {
+                  safeRemove(plate)
+                  plate = null
+              }
+
+              // ---------- уведомление ----------
+
+              private fun startAsForeground() {
+                  val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                  nm.createNotificationChannel(
+                      NotificationChannel(CHANNEL, "Прицел", NotificationManager.IMPORTANCE_LOW)
+                  )
+                  val open = PendingIntent.getActivity(
+                      this, 0, Intent(this, MainActivity::class.java),
+                      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                  )
+                  val stop = PendingIntent.getService(
+                      this, 1, Intent(this, OverlayService::class.java).setAction(ACTION_STOP),
+                      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                  )
+                  val stopAction = Notification.Action.Builder(
+                      Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+                      "Выключить",
+                      stop
+                  ).build()
+                  val notification = Notification.Builder(this, CHANNEL)
+                      .setSmallIcon(android.R.drawable.ic_dialog_info)
+                      .setContentTitle("DENVZ")
+                      .setContentText("Прицел и меню включены")
+                      .setContentIntent(open)
+                      .addAction(stopAction)
+                      .setOngoing(true)
+                      .build()
+                  if (Build.VERSION.SDK_INT >= 34) {
+                      startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                  } else {
+                      startForeground(NOTIF_ID, notification)
+                  }
+              }
+
+              companion object {
+                  const val ACTION_START = "com.denvz.app.START"
+                  const val ACTION_STOP = "com.denvz.app.STOP"
+                  private const val CHANNEL = "overlay"
+                  private const val NOTIF_ID = 1
+
+                  @Volatile
+                  var running = false
+
+                  @Volatile
+                  var instance: OverlayService? = null
+
+                  /** Сообщает работающему сервису, что настройки изменились. */
+                  fun refresh(context: Context) {
+                      context.startService(
+                          Intent(context, OverlayService::class.java).setAction(ACTION_START)
+                      )
+                  }
+              }
+          }
+          DENVZ_EOF
+          cat > app/src/main/java/com/denvz/app/TrackListener.kt <<'DENVZ_EOF'
+          package com.denvz.app
+
+          import android.content.ComponentName
+          import android.media.MediaMetadata
+          import android.media.session.MediaController
+          import android.media.session.MediaSessionManager
+          import android.media.session.PlaybackState
+          import android.service.notification.NotificationListenerService
+
+          /**
+           * Следит за играющей музыкой (Spotify, YouTube Music и т.д.) и сообщает название трека.
+           * Для работы нужен доступ к уведомлениям: он включается в настройках Android.
+           */
+          class TrackListener : NotificationListenerService() {
+
+              private var manager: MediaSessionManager? = null
+              private val attached = ArrayList<Pair<MediaController, MediaController.Callback>>()
+              private var lastTitle: String? = null
+
+              private val sessionsListener =
+                  MediaSessionManager.OnActiveSessionsChangedListener { list -> attach(list ?: emptyList()) }
+
+              override fun onListenerConnected() {
+                  super.onListenerConnected()
+                  val m = getSystemService(MediaSessionManager::class.java) ?: return
+                  manager = m
+                  val me = ComponentName(this, TrackListener::class.java)
+                  try {
+                      m.addOnActiveSessionsChangedListener(sessionsListener, me)
+                      attach(m.getActiveSessions(me))
+                      connected = true
+                  } catch (_: SecurityException) {
+                      connected = false
+                  }
+              }
+
+              override fun onListenerDisconnected() {
+                  try {
+                      manager?.removeOnActiveSessionsChangedListener(sessionsListener)
+                  } catch (_: Exception) {
+                  }
+                  detachAll()
+                  connected = false
+                  controller = null
+                  super.onListenerDisconnected()
+              }
+
+              private fun detachAll() {
+                  for ((c, cb) in attached) {
+                      try {
+                          c.unregisterCallback(cb)
+                      } catch (_: Exception) {
+                      }
+                  }
+                  attached.clear()
+              }
+
+              private fun attach(list: List<MediaController>) {
+                  detachAll()
+                  for (c in list) {
+                      val cb = object : MediaController.Callback() {
+                          override fun onMetadataChanged(metadata: MediaMetadata?) {
+                              report(metadata)
+                          }
+
+                          override fun onPlaybackStateChanged(state: PlaybackState?) {
+                              pick()
+                          }
+                      }
+                      c.registerCallback(cb)
+                      attached.add(c to cb)
+                  }
+                  pick()
+              }
+
+              /** Основным считаем тот плеер, который сейчас играет, иначе первый. */
+              private fun pick() {
+                  val playing = attached.firstOrNull { it.first.playbackState?.state == PlaybackState.STATE_PLAYING }
+                  controller = (playing ?: attached.firstOrNull())?.first
+              }
+
+              private fun report(metadata: MediaMetadata?) {
+                  val title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: return
+                  val artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST)
+                  val text = if (artist.isNullOrBlank()) title else "$artist - $title"
+                  if (text == lastTitle) return
+                  lastTitle = text
+                  OverlayService.instance?.showTrack(text)
+              }
+
+              companion object {
+                  @Volatile
+                  var controller: MediaController? = null
+
+                  @Volatile
+                  var connected = false
+              }
+          }
+          DENVZ_EOF
+          cat > app/src/main/java/com/denvz/app/Stretch.kt <<'DENVZ_EOF'
+          package com.denvz.app
+
+          import android.content.pm.PackageManager
+          import android.os.Handler
+          import android.os.Looper
+          import rikka.shizuku.Shizuku
+
+          /**
+           * Растяг: временно меняет разрешение экрана командой wm size.
+           * Команду выполняет Shizuku, потому что обычному приложению это запрещено.
+           */
+          object Stretch {
+              /** Название профиля и во сколько раз длинная сторона больше короткой. */
+              val RATIOS: List<Pair<String, Double>> = listOf(
+                  "1:1" to 1.0,
+                  "5:4" to 5.0 / 4.0,
+                  "4:3" to 4.0 / 3.0,
+                  "3:2" to 3.0 / 2.0,
+                  "16:10" to 16.0 / 10.0
+              )
+
+              @Volatile
+              var applied = false
+
+              private val main = Handler(Looper.getMainLooper())
+
+              fun running(): Boolean = try {
+                  Shizuku.pingBinder()
+              } catch (_: Throwable) {
+                  false
+              }
+
+              fun granted(): Boolean = try {
+                  running() && !Shizuku.isPreV11() &&
+                      Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+              } catch (_: Throwable) {
+                  false
+              }
+
+              fun request() {
+                  try {
+                      Shizuku.requestPermission(100)
+                  } catch (_: Throwable) {
+                  }
+              }
+
+              // В новых версиях Shizuku метод newProcess закрыт, поэтому зовём его через рефлексию.
+              private fun exec(cmd: Array<String>): String {
+                  val method = Shizuku::class.java.getDeclaredMethod(
+                      "newProcess",
+                      Array<String>::class.java,
+                      Array<String>::class.java,
+                      String::class.java
+                  )
+                  method.isAccessible = true
+                  val proc = method.invoke(null, cmd, null, null) as Process
+                  val text = proc.inputStream.bufferedReader().readText()
+                  proc.waitFor()
+                  return text
+              }
+
+              /** Запущена ли игра (по номеру процесса). Зовите не из главного потока. */
+              fun gameRunning(): Boolean = try {
+                  exec(arrayOf("pidof", Metrics.GAME)).trim().isNotEmpty()
+              } catch (_: Throwable) {
+                  false
+              }
+
+              /** Выполняет команду через Shizuku и возвращает вывод. Зовите только не из главного потока. */
+              fun shell(cmd: Array<String>): String = exec(cmd)
+
+              /** Ставит разрешение выбранного профиля. Короткая сторона экрана остаётся прежней. */
+              fun apply(ratioIndex: Int, done: (Boolean, String) -> Unit) {
+                  Thread {
+                      try {
+                          val phys = exec(arrayOf("wm", "size"))
+                          val m = Regex("Physical size: (\\d+)x(\\d+)").find(phys)
+                              ?: throw IllegalStateException("не удалось узнать размер экрана")
+                          val a = m.groupValues[1].toInt()
+                          val b = m.groupValues[2].toInt()
+                          val short = minOf(a, b)
+                          val long = (short * RATIOS.getOrElse(ratioIndex) { RATIOS[2] }.second).toInt()
+                          exec(arrayOf("wm", "size", "${short}x${long}"))
+                          val check = exec(arrayOf("wm", "size"))
+                          if (!check.contains("Override size: ${short}x${long}")) {
+                              throw IllegalStateException("система не приняла размер")
+                          }
+                          applied = true
+                          main.post { done(true, "${short}x${long}") }
+                      } catch (e: Throwable) {
+                          main.post { done(false, e.message ?: "ошибка") }
+                      }
+                  }.start()
+              }
+
+              /** Возвращает обычное разрешение. */
+              fun reset(done: (Boolean, String) -> Unit = { _, _ -> }) {
+                  Thread {
+                      try {
+                          exec(arrayOf("wm", "size", "reset"))
+                          applied = false
+                          main.post { done(true, "разрешение возвращено") }
+                      } catch (e: Throwable) {
+                          main.post { done(false, e.message ?: "ошибка") }
+                      }
+                  }.start()
+              }
+          }
+          DENVZ_EOF
+          cat > app/src/main/java/com/denvz/app/MainActivity.kt <<'DENVZ_EOF'
+          package com.denvz.app
+
+          import android.Manifest
+          import android.app.Activity
+          import android.content.ActivityNotFoundException
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.graphics.Color
+          import android.graphics.drawable.GradientDrawable
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Bundle
+          import android.provider.Settings
+          import android.view.Gravity
+          import android.view.View
+          import android.view.ViewGroup
+          import android.widget.Button
+          import android.widget.FrameLayout
+          import android.widget.LinearLayout
+          import android.widget.ScrollView
+          import android.widget.SeekBar
+          import android.widget.Switch
+          import android.widget.TextView
+          import android.widget.Toast
+
+          class MainActivity : Activity() {
+
+              private val bg = Color.parseColor("#08080C")
+              private val card = Color.parseColor("#15151B")
+              private val line = Color.parseColor("#262631")
+              private val fg = Color.parseColor("#EDEDF2")
+              private val muted = Color.parseColor("#8B8B9A")
+              private var accent = Color.parseColor("#4C7BD9")
+              private var accentSoft = Color.parseColor("#1B2A4D")
+              private var violet = Color.parseColor("#A78BFA")
+              private var selText = Color.parseColor("#8FB0F5")
+
+              private val gamePackage = "com.axlebolt.standoff2"
+
+              private val palette = listOf(
+                  "#E6E6EA", "#B4B6BD", "#E0113F", "#E0494F", "#E5642B", "#E08A00",
+                  "#E6D23A", "#4CCF5A", "#22D3C5", "#4C9BE8", "#8B5CF6", "#E86BD0"
+              ).map { Color.parseColor(it) }
+
+              private val shapeNames = mapOf(
+                  Shape.CROSS to "Крест", Shape.T to "Т-образный", Shape.DOT to "Точка",
+                  Shape.HEART to "Сердечко", Shape.SQUARE to "Квадрат", Shape.CIRCLE to "Круг"
+              )
+
+              private lateinit var cfg: CrosshairConfig
+              private lateinit var preview: CrosshairView
+              private lateinit var toggleBtn: Button
+              private lateinit var notifStatus: TextView
+              private lateinit var stretchStatus: TextView
+              private val ratioButtons = mutableListOf<Button>()
+              private val shapeButtons = mutableMapOf<Shape, Button>()
+              private val swatches = mutableListOf<Pair<Int, View>>()
+
+              private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+              private fun rounded(fill: Int, radiusDp: Int, strokeColor: Int? = null, strokeDp: Int = 1) =
+                  GradientDrawable().apply {
+                      setColor(fill)
+                      cornerRadius = dp(radiusDp).toFloat()
+                      if (strokeColor != null) setStroke(dp(strokeDp), strokeColor)
+                  }
+
+              private fun lp(topDp: Int = 0, bottomDp: Int = 12) =
+                  LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                      .apply { setMargins(0, dp(topDp), 0, dp(bottomDp)) }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  cfg = Prefs.load(this)
+                  val theme = Themes.get(Prefs.loadApp(this).theme)
+                  accent = theme.accent
+                  accentSoft = theme.soft
+                  violet = theme.text
+                  selText = theme.selected
+
+                  val scroll = ScrollView(this).apply { setBackgroundColor(bg) }
+                  val root = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(dp(20), dp(40), dp(20), dp(32))
+                  }
+                  scroll.addView(root)
+
+                  val header = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER_VERTICAL
+                  }
+                  val avatar = android.widget.ImageView(this).apply {
+                      setImageResource(R.drawable.ic_launcher_foreground)
+                  }
+                  header.addView(avatar, LinearLayout.LayoutParams(dp(76), dp(76)))
+                  val titles = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  titles.addView(TextView(this).apply {
+                      text = "DENVZ"
+                      textSize = 30f
+                      setTextColor(violet)
+                      setTypeface(typeface, android.graphics.Typeface.BOLD)
+                  })
+                  titles.addView(TextView(this).apply {
+                      text = "Прицел для Standoff 2"
+                      textSize = 14f
+                      setTextColor(muted)
+                  })
+                  header.addView(titles, LinearLayout.LayoutParams(
+                      ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                  ).apply { leftMargin = dp(6) })
+                  root.addView(header, lp(0, 16))
+
+                  // Анимация появления названия и аватарки
+                  titles.alpha = 0f
+                  titles.translationX = dp(24).toFloat()
+                  titles.animate().alpha(1f).translationX(0f).setStartDelay(250).setDuration(600).start()
+                  avatar.alpha = 0f
+                  avatar.scaleX = 0.5f
+                  avatar.scaleY = 0.5f
+                  avatar.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(700)
+                      .setInterpolator(android.view.animation.OvershootInterpolator()).start()
+
+                  // Предпросмотр
+                  val previewBox = FrameLayout(this).apply { background = rounded(card, 24, line) }
+                  preview = CrosshairView(this, cfg)
+                  previewBox.addView(preview, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(200)))
+                  root.addView(previewBox, lp())
+
+                  // Запуск
+                  toggleBtn = actionButton("Включить прицел", true) { toggleOverlay() }
+                  root.addView(toggleBtn, lp(0, 8))
+                  root.addView(actionButton("Запустить Standoff 2", false) { launchGame() }, lp(0, 16))
+
+                  // Форма
+                  val shapeCard = makeCard()
+                  shapeCard.addView(sectionTitle("Форма"))
+                  val shapes = Shape.values().toList()
+                  for (rowShapes in shapes.chunked(3)) {
+                      val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                      for (s in rowShapes) {
+                          val b = Button(this).apply {
+                              text = shapeNames[s]
+                              isAllCaps = false
+                              textSize = 13f
+                              setOnClickListener { cfg.shape = s; changed() }
+                          }
+                          shapeButtons[s] = b
+                          row.addView(b, LinearLayout.LayoutParams(0, dp(52), 1f).apply { setMargins(dp(3), dp(3), dp(3), dp(3)) })
+                      }
+                      shapeCard.addView(row)
+                  }
+                  root.addView(shapeCard, lp())
+
+                  // Цвет
+                  val colorCard = makeCard()
+                  colorCard.addView(sectionTitle("Цвет"))
+                  for (rowColors in palette.chunked(6)) {
+                      val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                      for (col in rowColors) {
+                          val v = View(this).apply { setOnClickListener { cfg.color = col; changed() } }
+                          swatches.add(col to v)
+                          row.addView(v, LinearLayout.LayoutParams(0, dp(44), 1f).apply { setMargins(dp(4), dp(4), dp(4), dp(4)) })
+                      }
+                      colorCard.addView(row)
+                  }
+                  root.addView(colorCard, lp())
+
+                  // Размер и линии
+                  val sizeCard = makeCard()
+                  sizeCard.addView(sectionTitle("Размер и линии"))
+                  addSeek(sizeCard, "Размер", 8, 120, cfg.size, " dp") { cfg.size = it; changed() }
+                  addSeek(sizeCard, "Толщина", 1, 10, cfg.thick, " dp") { cfg.thick = it; changed() }
+                  addSeek(sizeCard, "Зазор в центре", 0, 40, cfg.gap, " dp") { cfg.gap = it; changed() }
+                  addSeek(sizeCard, "Прозрачность", 20, 100, cfg.alpha, "%") { cfg.alpha = it; changed() }
+                  root.addView(sizeCard, lp())
+
+                  // Дополнительно
+                  val extraCard = makeCard()
+                  extraCard.addView(sectionTitle("Дополнительно"))
+                  extraCard.addView(Switch(this).apply {
+                      text = "Обводка"
+                      setTextColor(fg)
+                      isChecked = cfg.outline
+                      setOnCheckedChangeListener { _, v -> cfg.outline = v; changed() }
+                  }, lp(4, 8))
+                  extraCard.addView(Switch(this).apply {
+                      text = "Точка в центре"
+                      setTextColor(fg)
+                      isChecked = cfg.centerDot
+                      setOnCheckedChangeListener { _, v -> cfg.centerDot = v; changed() }
+                  }, lp(4, 4))
+                  root.addView(extraCard, lp())
+
+                  // Меню поверх игры и музыка
+                  val appCfg = Prefs.loadApp(this)
+                  val appCard = makeCard()
+                  appCard.addView(sectionTitle("Меню и музыка"))
+                  appCard.addView(Switch(this).apply {
+                      text = "Шестерёнка с меню поверх игры"
+                      setTextColor(fg)
+                      isChecked = appCfg.gear
+                      setOnCheckedChangeListener { _, v ->
+                          appCfg.gear = v
+                          Prefs.saveApp(this@MainActivity, appCfg)
+                          if (OverlayService.running) OverlayService.refresh(this@MainActivity)
+                      }
+                  }, lp(4, 8))
+                  appCard.addView(Switch(this).apply {
+                      text = "Название трека поверх игры"
+                      setTextColor(fg)
+                      isChecked = appCfg.track
+                      setOnCheckedChangeListener { _, v ->
+                          appCfg.track = v
+                          Prefs.saveApp(this@MainActivity, appCfg)
+                          if (OverlayService.running) OverlayService.refresh(this@MainActivity)
+                      }
+                  }, lp(4, 8))
+                  addSeek(appCard, "Показывать трек", 2, 10, appCfg.trackSec, " с") {
+                      appCfg.trackSec = it
+                      Prefs.saveApp(this@MainActivity, appCfg)
+                      if (OverlayService.running) OverlayService.refresh(this@MainActivity)
+                  }
+                  notifStatus = TextView(this).apply {
+                      setTextColor(muted)
+                      textSize = 13f
+                      setPadding(0, dp(12), 0, dp(8))
+                  }
+                  appCard.addView(notifStatus)
+                  appCard.addView(actionButton("Дать доступ к уведомлениям", false) {
+                      startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                  }, lp(0, 0))
+                  root.addView(appCard, lp())
+
+                  // Снег
+                  fun saveApp() {
+                      Prefs.saveApp(this@MainActivity, appCfg)
+                      if (OverlayService.running) OverlayService.refresh(this@MainActivity)
+                  }
+                  val snowCard = makeCard()
+                  snowCard.addView(sectionTitle("Снег"))
+                  snowCard.addView(Switch(this).apply {
+                      text = "Падение снега поверх игры"
+                      setTextColor(fg)
+                      isChecked = appCfg.snow
+                      setOnCheckedChangeListener { _, v -> appCfg.snow = v; saveApp() }
+                  }, lp(4, 4))
+                  addSeek(snowCard, "Количество", 10, 200, appCfg.snowAmount, "") { appCfg.snowAmount = it; saveApp() }
+                  addSeek(snowCard, "Скорость", 40, 250, appCfg.snowSpeed, " %") { appCfg.snowSpeed = it; saveApp() }
+                  addSeek(snowCard, "Размер снежинок", 50, 250, appCfg.snowSize, " %") { appCfg.snowSize = it; saveApp() }
+                  root.addView(snowCard, lp())
+
+                  // Shizuku: нужен для растяга и FPS
+                  val shCard = makeCard()
+                  shCard.addView(sectionTitle("Shizuku (для растяга и FPS)"))
+                  stretchStatus = TextView(this).apply {
+                      setTextColor(muted)
+                      textSize = 13f
+                      setPadding(0, dp(4), 0, dp(8))
+                  }
+                  shCard.addView(stretchStatus)
+                  shCard.addView(actionButton("Открыть Shizuku", false) {
+                      val i = packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
+                      if (i == null) {
+                          Toast.makeText(this, "Приложение Shizuku не установлено", Toast.LENGTH_LONG).show()
+                      } else {
+                          startActivity(i)
+                      }
+                  }, lp(0, 8))
+                  shCard.addView(actionButton("Дать доступ Shizuku", false) {
+                      if (!Stretch.running()) {
+                          Toast.makeText(this, "Сначала откройте Shizuku и нажмите Start", Toast.LENGTH_LONG).show()
+                      } else {
+                          Stretch.request()
+                          shCard.postDelayed({ refreshButtons() }, 1500)
+                      }
+                  }, lp(0, 0))
+                  root.addView(shCard, lp())
+
+                  // Рамка: FPS, пинг, часы, батарея
+                  val hudCard = makeCard()
+                  hudCard.addView(sectionTitle("Рамка поверх игры"))
+                  hudCard.addView(Switch(this).apply {
+                      text = "FPS игры (нужен Shizuku)"
+                      setTextColor(fg)
+                      isChecked = appCfg.hudFps
+                      setOnCheckedChangeListener { _, v -> appCfg.hudFps = v; saveApp() }
+                  }, lp(4, 8))
+                  hudCard.addView(Switch(this).apply {
+                      text = "Пинг"
+                      setTextColor(fg)
+                      isChecked = appCfg.hudPing
+                      setOnCheckedChangeListener { _, v -> appCfg.hudPing = v; saveApp() }
+                  }, lp(4, 8))
+                  hudCard.addView(Switch(this).apply {
+                      text = "Часы"
+                      setTextColor(fg)
+                      isChecked = appCfg.hudClock
+                      setOnCheckedChangeListener { _, v -> appCfg.hudClock = v; saveApp() }
+                  }, lp(4, 8))
+                  hudCard.addView(Switch(this).apply {
+                      text = "Заряд батареи"
+                      setTextColor(fg)
+                      isChecked = appCfg.hudBattery
+                      setOnCheckedChangeListener { _, v -> appCfg.hudBattery = v; saveApp() }
+                  }, lp(4, 8))
+                  hudCard.addView(Switch(this).apply {
+                      text = "Предупреждения (рамка краснеет при пинге от 150 или заряде до 15%)"
+                      setTextColor(fg)
+                      isChecked = appCfg.warn
+                      setOnCheckedChangeListener { _, v -> appCfg.warn = v; saveApp() }
+                  }, lp(4, 8))
+                  hudCard.addView(TextView(this).apply {
+                      text = "Куда мерить пинг"
+                      setTextColor(muted)
+                      textSize = 13f
+                      setPadding(0, dp(8), 0, dp(2))
+                  })
+                  choiceRow(hudCard, Metrics.PING_TARGETS.map { it.first }, { appCfg.pingTarget }) {
+                      appCfg.pingTarget = it
+                      saveApp()
+                  }
+                  hudCard.addView(TextView(this).apply {
+                      text = "Где показывать рамку"
+                      setTextColor(muted)
+                      textSize = 13f
+                      setPadding(0, dp(8), 0, dp(2))
+                  })
+                  choiceRow(hudCard, listOf("По центру", "Слева", "Справа"), { appCfg.hudPos }) {
+                      appCfg.hudPos = it
+                      saveApp()
+                  }
+                  hudCard.addView(TextView(this).apply {
+                      text = "Пинг меряется до выбранного сайта, а не до серверов игры. FPS берётся из игры через Shizuku: без Shizuku FPS показать нельзя. Цвет цифр: зелёный хорошо, жёлтый средне, красный плохо."
+                      setTextColor(muted)
+                      textSize = 13f
+                      setPadding(0, dp(8), 0, 0)
+                  })
+                  root.addView(hudCard, lp())
+
+                  // Растяг
+                  val stCard = makeCard()
+                  stCard.addView(sectionTitle("Растяг"))
+                  stCard.addView(Switch(this).apply {
+                      text = "Растяг при запуске игры"
+                      setTextColor(fg)
+                      isChecked = appCfg.stretch
+                      setOnCheckedChangeListener { _, v ->
+                          appCfg.stretch = v
+                          saveApp()
+                      }
+                  }, lp(4, 8))
+                  val ratioRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                  Stretch.RATIOS.forEachIndexed { i, r ->
+                      val b = Button(this).apply {
+                          text = r.first
+                          isAllCaps = false
+                          setOnClickListener {
+                              appCfg.ratio = i
+                              saveApp()
+                              refreshRatioButtons(appCfg.ratio)
+                          }
+                      }
+                      ratioButtons.add(b)
+                      ratioRow.addView(b, LinearLayout.LayoutParams(0, dp(48), 1f).apply { setMargins(dp(3), dp(3), dp(3), dp(3)) })
+                  }
+                  stCard.addView(ratioRow)
+                  refreshRatioButtons(appCfg.ratio)
+                  stCard.addView(TextView(this).apply {
+                      text = "Если растяг включён, он сам включится, когда откроется Standoff 2, и сам выключится, когда игру закроете."
+                      setTextColor(muted)
+                      textSize = 13f
+                      setPadding(0, dp(12), 0, dp(8))
+                  })
+                  stCard.addView(actionButton("Применить растяг сейчас", false) {
+                      if (!Stretch.granted()) {
+                          Toast.makeText(this, "Нет доступа Shizuku", Toast.LENGTH_LONG).show()
+                      } else {
+                          Stretch.apply(Prefs.loadApp(this).ratio) { ok, msg ->
+                              Toast.makeText(this, if (ok) "Растяг: $msg" else "Ошибка: $msg", Toast.LENGTH_LONG).show()
+                          }
+                      }
+                  }, lp(0, 8))
+                  stCard.addView(actionButton("Вернуть разрешение", false) {
+                      if (!Stretch.granted()) {
+                          Toast.makeText(this, "Нет доступа Shizuku", Toast.LENGTH_LONG).show()
+                      } else {
+                          Stretch.reset { _, msg -> Toast.makeText(this, msg, Toast.LENGTH_LONG).show() }
+                      }
+                  }, lp(0, 0))
+                  root.addView(stCard, lp())
+
+                  // Стиль приложения
+                  val themeCard = makeCard()
+                  themeCard.addView(sectionTitle("Стиль приложения"))
+                  val themeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                  Themes.ALL.forEachIndexed { i, t ->
+                      val on = i == appCfg.theme
+                      val dot = View(this).apply {
+                          background = GradientDrawable().apply {
+                              shape = GradientDrawable.OVAL
+                              setColor(t.accent)
+                              setStroke(dp(if (on) 4 else 1), if (on) Color.WHITE else Color.parseColor("#33FFFFFF"))
+                          }
+                          setOnClickListener {
+                              appCfg.theme = i
+                              Prefs.saveApp(this@MainActivity, appCfg)
+                              recreate()
+                          }
+                      }
+                      themeRow.addView(dot, LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                          setMargins(dp(4), dp(4), dp(4), dp(4))
+                      })
+                  }
+                  themeCard.addView(themeRow)
+                  themeCard.addView(TextView(this).apply {
+                      text = "Выбрано: " + Themes.get(appCfg.theme).name + ". Меню в игре обновится после перезапуска прицела."
+                      setTextColor(muted)
+                      textSize = 13f
+                      setPadding(0, dp(8), 0, 0)
+                  })
+                  root.addView(themeCard, lp())
+
+                  setContentView(scroll)
+                  refreshSelection()
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  refreshButtons()
+              }
+
+              private fun makeCard() = LinearLayout(this).apply {
+                  orientation = LinearLayout.VERTICAL
+                  background = rounded(card, 24, line)
+                  setPadding(dp(16), dp(16), dp(16), dp(16))
+              }
+
+              private fun sectionTitle(text: String) = TextView(this).apply {
+                  this.text = text
+                  textSize = 17f
+                  setTextColor(fg)
+                  setTypeface(typeface, android.graphics.Typeface.BOLD)
+                  setPadding(0, 0, 0, dp(8))
+              }
+
+              private fun actionButton(text: String, primary: Boolean, onClick: () -> Unit) = Button(this).apply {
+                  this.text = text
+                  isAllCaps = false
+                  textSize = 16f
+                  setTextColor(if (primary) Color.WHITE else fg)
+                  background = if (primary) rounded(accent, 16) else rounded(Color.parseColor("#1C1C24"), 16, line)
+                  minimumHeight = dp(52)
+                  setOnClickListener { onClick() }
+              }
+
+              private fun addSeek(parent: LinearLayout, name: String, min: Int, max: Int, value: Int, unit: String, onChange: (Int) -> Unit) {
+                  val label = TextView(this).apply {
+                      setTextColor(muted)
+                      textSize = 14f
+                      setPadding(0, dp(8), 0, 0)
+                  }
+                  fun refresh(v: Int) { label.text = "$name: $v$unit" }
+                  refresh(value)
+                  val bar = SeekBar(this)
+                  bar.min = min
+                  bar.max = max
+                  bar.progress = value
+                  bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                      override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                          refresh(p)
+                          if (fromUser) onChange(p)
+                      }
+                      override fun onStartTrackingTouch(s: SeekBar?) {}
+                      override fun onStopTrackingTouch(s: SeekBar?) {}
+                  })
+                  parent.addView(label)
+                  parent.addView(bar)
+              }
+
+              private fun changed() {
+                  Prefs.save(this, cfg)
+                  preview.update(cfg)
+                  if (OverlayService.running) OverlayService.refresh(this)
+                  refreshSelection()
+              }
+
+              private fun refreshSelection() {
+                  for ((shape, b) in shapeButtons) {
+                      val on = shape == cfg.shape
+                      b.background = if (on) rounded(accentSoft, 14, accent, 2) else rounded(Color.parseColor("#1C1C24"), 14, line)
+                      b.setTextColor(if (on) selText else muted)
+                  }
+                  for ((col, v) in swatches) {
+                      val on = col == cfg.color
+                      v.background = GradientDrawable().apply {
+                          shape = GradientDrawable.OVAL
+                          setColor(col)
+                          setStroke(dp(if (on) 3 else 1), if (on) accent else Color.parseColor("#33FFFFFF"))
+                      }
+                  }
+              }
+
+              /** Ряд кнопок-выборов: подсвечивает выбранную и сообщает номер нажатой. */
+              private fun choiceRow(parent: LinearLayout, labels: List<String>, selected: () -> Int, onPick: (Int) -> Unit) {
+                  val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                  val btns = ArrayList<Button>()
+                  fun paint() {
+                      btns.forEachIndexed { i, b ->
+                          val on = i == selected()
+                          b.background = if (on) rounded(accentSoft, 14, accent, 2) else rounded(Color.parseColor("#1C1C24"), 14, line)
+                          b.setTextColor(if (on) selText else muted)
+                      }
+                  }
+                  labels.forEachIndexed { i, t ->
+                      val b = Button(this).apply {
+                          text = t
+                          isAllCaps = false
+                          setOnClickListener {
+                              onPick(i)
+                              paint()
+                          }
+                      }
+                      btns.add(b)
+                      row.addView(b, LinearLayout.LayoutParams(0, dp(48), 1f).apply { setMargins(dp(3), dp(3), dp(3), dp(3)) })
+                  }
+                  paint()
+                  parent.addView(row)
+              }
+
+              private fun refreshRatioButtons(selected: Int) {
+                  ratioButtons.forEachIndexed { i, b ->
+                      val on = i == selected
+                      b.background = if (on) rounded(accentSoft, 14, accent, 2) else rounded(Color.parseColor("#1C1C24"), 14, line)
+                      b.setTextColor(if (on) selText else muted)
+                  }
+              }
+
+              private fun refreshButtons() {
+                  toggleBtn.text = if (OverlayService.running) "Выключить прицел" else "Включить прицел"
+                  val listeners = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
+                  val enabled = listeners?.contains(packageName) == true
+                  notifStatus.text = if (enabled) {
+                      "Доступ к уведомлениям выдан: название трека работает"
+                  } else {
+                      "Доступа к уведомлениям нет: название трека не появится"
+                  }
+                  stretchStatus.text = when {
+                      Stretch.granted() -> "Shizuku работает, доступ выдан"
+                      Stretch.running() -> "Shizuku запущен, нажмите «Дать доступ Shizuku» и разрешите"
+                      else -> "Shizuku не запущен. Откройте Shizuku и нажмите Start. Без него не будет растяга и FPS"
+                  }
+              }
+
+              // ---------- Прицел поверх игры ----------
+
+              /** Возвращает true, если сервис запущен. Если нет разрешения, открывает системные настройки. */
+              private fun startOverlay(): Boolean {
+                  if (!Settings.canDrawOverlays(this)) {
+                      Toast.makeText(this, "Разрешите показ поверх других окон и вернитесь в DENVZ", Toast.LENGTH_LONG).show()
+                      startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                      return false
+                  }
+                  if (Build.VERSION.SDK_INT >= 33 &&
+                      checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                  ) {
+                      requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+                  }
+                  startForegroundService(Intent(this, OverlayService::class.java).setAction(OverlayService.ACTION_START))
+                  toggleBtn.postDelayed({ refreshButtons() }, 400)
+                  return true
+              }
+
+              private fun stopOverlay() {
+                  startService(Intent(this, OverlayService::class.java).setAction(OverlayService.ACTION_STOP))
+                  toggleBtn.postDelayed({ refreshButtons() }, 400)
+              }
+
+              private fun toggleOverlay() {
+                  if (OverlayService.running) stopOverlay() else startOverlay()
+              }
+
+              // ---------- Запуск Standoff 2 ----------
+
+              private fun launchGame() {
+                  if (!OverlayService.running && !startOverlay()) return
+                  val intent = packageManager.getLaunchIntentForPackage(gamePackage)
+                  if (intent == null) {
+                      Toast.makeText(this, "Standoff 2 не найден. Открываю Google Play", Toast.LENGTH_LONG).show()
+                      try {
+                          startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$gamePackage")))
+                      } catch (_: ActivityNotFoundException) {
+                          startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$gamePackage")))
+                      }
+                  } else {
+                      val cfgApp = Prefs.loadApp(this)
+                      if (cfgApp.stretch && Stretch.granted()) {
+                          Stretch.apply(cfgApp.ratio) { ok, msg ->
+                              if (!ok) Toast.makeText(this, "Растяг не сработал: $msg", Toast.LENGTH_LONG).show()
+                              startActivity(intent)
+                          }
+                      } else {
+                          startActivity(intent)
+                      }
+                  }
+              }
+          }
+          DENVZ_EOF
+          base64 -d > app/src/main/res/drawable-nodpi/ic_launcher_foreground.webp <<'DENVZ_EOF'
+          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
+          DENVZ_EOF
+
+      - name: Build APK
+        run: gradle assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DENVZ-v7-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
